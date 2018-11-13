@@ -1,6 +1,9 @@
 package amqp
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // confirms resequences and notifies one or multiple publisher confirmation listeners
 type confirms struct {
@@ -62,9 +65,12 @@ func (c *confirms) One(confirmed Confirmation) {
 	c.m.Lock()
 	defer c.m.Unlock()
 
+	fmt.Println("expecting", c.expecting)
 	if c.expecting == confirmed.DeliveryTag {
+		fmt.Println("confirming", c.expecting)
 		c.confirm(confirmed)
 	} else {
+		fmt.Printf("not expecting, %+v\n", c.sequencer)
 		c.sequencer[confirmed.DeliveryTag] = confirmed
 	}
 	c.resequence()

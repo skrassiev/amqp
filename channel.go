@@ -6,6 +6,7 @@
 package amqp
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -274,6 +275,7 @@ func (ch *Channel) sendOpen(msg message) (err error) {
 func (ch *Channel) dispatch(msg message) {
 	switch m := msg.(type) {
 	case *channelClose:
+		fmt.Println("dispatch channelClose")
 		// lock before sending connection.close-ok
 		// to avoid unexpected interleaving with basic.publish frames if
 		// publishing is happening concurrently
@@ -283,6 +285,7 @@ func (ch *Channel) dispatch(msg message) {
 		ch.connection.closeChannel(ch, newError(m.ReplyCode, m.ReplyText))
 
 	case *channelFlow:
+		fmt.Println("dispatch channelFlow")
 		ch.notifyM.RLock()
 		for _, c := range ch.flows {
 			c <- m.Active
@@ -291,6 +294,7 @@ func (ch *Channel) dispatch(msg message) {
 		ch.send(&channelFlowOk{Active: m.Active})
 
 	case *basicCancel:
+		fmt.Println("dispatch basicCancel")
 		ch.notifyM.RLock()
 		for _, c := range ch.cancels {
 			c <- m.ConsumerTag
@@ -299,6 +303,7 @@ func (ch *Channel) dispatch(msg message) {
 		ch.consumers.cancel(m.ConsumerTag)
 
 	case *basicReturn:
+		fmt.Println("dispatch basicReturn")
 		ret := newReturn(*m)
 		ch.notifyM.RLock()
 		for _, c := range ch.returns {
@@ -307,15 +312,22 @@ func (ch *Channel) dispatch(msg message) {
 		ch.notifyM.RUnlock()
 
 	case *basicAck:
+		fmt.Println("dispatch basicAck")
 		if ch.confirming {
+			fmt.Println("dispatch basicAck conforming")
 			if m.Multiple {
+				fmt.Println("dispatch basicAck multiple", m.DeliveryTag)
 				ch.confirms.Multiple(Confirmation{m.DeliveryTag, true})
+				fmt.Println("dispatch basicAck multiple return")
 			} else {
+				fmt.Println("dispatch basicAck one", m.DeliveryTag)
 				ch.confirms.One(Confirmation{m.DeliveryTag, true})
+				fmt.Println("dispatch basicAck one return")
 			}
 		}
 
 	case *basicNack:
+		fmt.Println("dispatch basicNAck")
 		if ch.confirming {
 			if m.Multiple {
 				ch.confirms.Multiple(Confirmation{m.DeliveryTag, false})
@@ -325,11 +337,13 @@ func (ch *Channel) dispatch(msg message) {
 		}
 
 	case *basicDeliver:
+		fmt.Println("dispatch basicDeliver")
 		ch.consumers.send(m.ConsumerTag, newDelivery(ch, m))
 		// TODO log failed consumer and close channel, this can happen when
 		// deliveries are in flight and a no-wait cancel has happened
 
 	default:
+		fmt.Println("dispatch default")
 		ch.rpc <- msg
 	}
 }
@@ -340,23 +354,28 @@ func (ch *Channel) transition(f func(*Channel, frame) error) error {
 }
 
 func (ch *Channel) recvMethod(f frame) error {
+	fmt.Println("recvMethod: Recvd frame", f)
 	switch frame := f.(type) {
 	case *methodFrame:
 		if msg, ok := frame.Method.(messageWithContent); ok {
 			ch.body = make([]byte, 0)
 			ch.message = msg
+			fmt.Println("frame method", *ch)
 			return ch.transition((*Channel).recvHeader)
 		}
 
+		fmt.Println("frame method dispatch")
 		ch.dispatch(frame.Method) // termination state
 		return ch.transition((*Channel).recvMethod)
 
 	case *headerFrame:
 		// drop
+		fmt.Println("frame header")
 		return ch.transition((*Channel).recvMethod)
 
 	case *bodyFrame:
 		// drop
+		fmt.Println("frame body")
 		return ch.transition((*Channel).recvMethod)
 	}
 
@@ -364,6 +383,7 @@ func (ch *Channel) recvMethod(f frame) error {
 }
 
 func (ch *Channel) recvHeader(f frame) error {
+	fmt.Println("recvHEader: Recvd frame", f)
 	switch frame := f.(type) {
 	case *methodFrame:
 		// interrupt content and handle method
@@ -391,6 +411,7 @@ func (ch *Channel) recvHeader(f frame) error {
 // state after method + header and before the length
 // defined by the header has been reached
 func (ch *Channel) recvContent(f frame) error {
+	fmt.Println("recvContent: Recvd frame", f)
 	switch frame := f.(type) {
 	case *methodFrame:
 		// interrupt content and handle method
@@ -622,7 +643,7 @@ acknowledgments from the consumers.  This option is ignored when consumers are
 started with noAck.
 
 When global is true, these Qos settings apply to all existing and future
-consumers on all channels on the same connection.  When false, the Channel.Qos
+consumers on all channels on the same connection.  When `fa`lse, the Channel.Qos
 settings will apply to all existing and future consumers on this channel.
 
 Please see the RabbitMQ Consumer Prefetch documentation for an explanation of
